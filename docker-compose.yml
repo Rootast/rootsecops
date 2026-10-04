@@ -1,0 +1,222 @@
+name: ${COMPOSE_PROJECT_NAME:-rootsecops}
+
+x-backend-env: &backend-env
+  FRONT_DOMAIN: ${FRONT_DOMAIN:?FRONT_DOMAIN must be set in .env}
+  API_DOMAIN: ${API_DOMAIN:?API_DOMAIN must be set in .env}
+  HTTP_PORT: ${HTTP_PORT:-80}
+  HTTPS_PORT: ${HTTPS_PORT:-443}
+  DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Run scripts/configure.py first}
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+  FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS-}
+  CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS-}
+  DB_ENGINE: django.db.backends.postgresql
+  DB_NAME: ${POSTGRES_DB:-rootsecops}
+  DB_USER: ${POSTGRES_USER:-rootsecops}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/configure.py first}
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/1
+  SCANNER_RUN_INLINE: "false"
+  SCANNER_MOCK_MODE: "false"
+  SCANNER_WORK_DIR: /app/var/scans
+  TOOL_LOCK_DIR: /app/var/tool_locks
+  TMPDIR: /app/var/tmp
+  GRYPE_DB_CACHE_DIR: /app/var/grype/db
+  GRYPE_DB_AUTO_UPDATE: "false"
+  TRIVY_CACHE_DIR: ${TRIVY_CACHE_DIR:-/app/var/trivy}
+  TRIVY_DB_REPOSITORY: ${TRIVY_DB_REPOSITORY:-ghcr.io/aquasecurity/trivy-db:2}
+  TOOL_CRAWLER_INTERVAL_SECONDS: ${TOOL_CRAWLER_INTERVAL_SECONDS:-21600}
+  FILE_SANDBOX_ENABLED: "true"
+  FILE_SANDBOX_MAX_UPLOAD_MB: ${FILE_SANDBOX_MAX_UPLOAD_MB:-50}
+  FILE_SANDBOX_STORAGE_DIR: /app/var/file_sandbox
+  CLAMAV_ENABLED: "true"
+  CLAMSCAN_BIN: clamscan
+  FRESHCLAM_BIN: freshclam
+  YARA_ENABLED: "true"
+  YARA_BIN: yara
+  YARA_RULES_DIR: /app/var/yara_rules
+  YARA_RULE_REPOS: ${YARA_RULE_REPOS:-https://github.com/Yara-Rules/rules,https://github.com/Neo23x0/signature-base}
+  EXIFTOOL_ENABLED: "true"
+  EXIFTOOL_BIN: exiftool
+  PDFINFO_ENABLED: "true"
+  PDFINFO_BIN: pdfinfo
+  LOG_FILE_PATH: /app/var/logs/app.log
+
+x-backend-build: &backend-build
+  context: .
+  dockerfile: backend/Dockerfile
+
+x-backend-security: &backend-security
+  read_only: true
+  cap_drop: ["ALL"]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=1g
+
+x-backend-volumes: &backend-volumes
+  - scanner_var:/app/var
+  - clamav_db:/var/lib/clamav
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rootsecops}
+      POSTGRES_USER: ${POSTGRES_USER:-rootsecops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/configure.py first}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [internal]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks: [internal]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: *backend-build
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      BOOTSTRAP_ADMIN_ON_START: "true"
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Run scripts/configure.py first}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_HOST:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
+    volumes: *backend-volumes
+    <<: *backend-security
+    networks: [internal, public]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    build: *backend-build
+    restart: unless-stopped
+    command: ["celery", "-A", "config", "worker", "-l", "info", "--concurrency=2"]
+    environment: *backend-env
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes: *backend-volumes
+    <<: *backend-security
+    networks: [internal, public]
+
+  beat:
+    build: *backend-build
+    restart: unless-stopped
+    command: ["celery", "-A", "config", "beat", "-l", "info", "--schedule", "/app/var/celerybeat-schedule"]
+    environment: *backend-env
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes: *backend-volumes
+    <<: *backend-security
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    networks: [internal]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: "//${API_DOMAIN:?API_DOMAIN must be set in .env}/api/v1"
+    restart: unless-stopped
+    environment:
+      BACKEND_API_URL: ${BACKEND_API_URL:-http://backend:8000}
+      HOSTNAME: "0.0.0.0"
+      PORT: "3000"
+      NEXT_TELEMETRY_DISABLED: "1"
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_HOST:-127.0.0.1}:${FRONTEND_PORT:-3000}:3000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    networks: [public, internal]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  gateway:
+    profiles: ["bundled-gateway"]
+    build:
+      context: ./deploy/nginx
+    restart: unless-stopped
+    environment:
+      FRONT_DOMAIN: ${FRONT_DOMAIN:?FRONT_DOMAIN must be set in .env}
+      API_DOMAIN: ${API_DOMAIN:?API_DOMAIN must be set in .env}
+      TLS_CERT_DAYS: ${TLS_CERT_DAYS:-365}
+      CLIENT_MAX_BODY_SIZE: ${CLIENT_MAX_BODY_SIZE:-100m}
+    depends_on:
+      frontend:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_HOST:-0.0.0.0}:${HTTP_PORT:-80}:80"
+      - "${GATEWAY_HOST:-0.0.0.0}:${HTTPS_PORT:-443}:443"
+    volumes:
+      - tls_certs:/etc/nginx/certs
+    networks: [public]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+networks:
+  internal:
+    internal: true
+  public:
+
+volumes:
+  postgres_data:
+  redis_data:
+  scanner_var:
+  clamav_db:
+  tls_certs:

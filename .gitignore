@@ -1,0 +1,44 @@
+# Private configuration and credentials
+.env
+.env.*
+!.env.example
+docker-compose.override.yml
+compose.override.yaml
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+
+# Runtime data and scanner databases
+var/
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.log
+staticfiles/
+
+# Generated dependencies and build output
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+playwright-report/
+test-results/
+
+# Local/editor files and transfer archives
+.DS_Store
+.idea/
+.vscode/
+*.zip
+*.tar
+*.tar.gz

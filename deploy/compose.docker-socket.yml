@@ -1,0 +1,8 @@
+# Opt-in for image filesystem export. Socket access is host-root equivalent.
+# Use both -f arguments for later Compose up/recreate operations as well.
+services:
+  worker:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:?Set DOCKER_GID to the host Docker socket group ID}"

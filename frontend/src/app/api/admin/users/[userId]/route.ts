@@ -1,0 +1,36 @@
+import { NextRequest, NextResponse } from "next/server";
+
+const backendUrl = process.env.BACKEND_API_URL ?? "http://127.0.0.1:8000";
+
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
+  const { userId } = await params;
+  const response = await fetch(`${backendUrl}/api/v1/admin/users/${encodeURIComponent(userId)}/`, {
+    method: "PATCH",
+    headers: { ...authHeaders(request), "Content-Type": "application/json" },
+    body: JSON.stringify(await request.json()),
+  });
+  return NextResponse.json(await safeJson(response), { status: response.status });
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
+  const { userId } = await params;
+  const response = await fetch(`${backendUrl}/api/v1/admin/users/${encodeURIComponent(userId)}/`, {
+    method: "DELETE",
+    headers: authHeaders(request),
+  });
+  return NextResponse.json(await safeJson(response), { status: response.status });
+}
+
+function authHeaders(request: NextRequest): Record<string, string> {
+  const authorization = request.headers.get("authorization");
+  return authorization ? { Authorization: authorization } : {};
+}
+
+async function safeJson(response: Response) {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return { detail: text || `Backend returned ${response.status}` };
+  }
+}
