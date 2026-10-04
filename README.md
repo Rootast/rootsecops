@@ -7,6 +7,7 @@
 Container images. Git repositories. Dockerfiles. Uploaded files.<br>
 One workflow to launch scans, inspect findings, and manage your tools.
 
+[![RootSecOps CI](https://github.com/Rootast/rootsecops/actions/workflows/ci.yml/badge.svg)](https://github.com/Rootast/rootsecops/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-171717?logo=nextdotjs)
 ![Docker Compose](https://img.shields.io/badge/Deploy-Docker_Compose-2496ED?logo=docker&logoColor=white)
@@ -61,9 +62,12 @@ Requires Docker Engine with Compose v2, Python 3, and network access for the
 initial image/tool/database downloads. Run on a dedicated machine with enough
 disk space for scanner databases and extracted images.
 
-From the repository root:
+Clone the repository and configure your deployment:
 
 ```sh
+git clone https://github.com/Rootast/rootsecops.git
+cd rootsecops
+
 python3 scripts/configure.py \
   --front-domain rootsecops.test \
   --api-domain api.rootsecops.test

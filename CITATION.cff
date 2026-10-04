@@ -2,6 +2,8 @@ cff-version: 1.2.0
 message: "If you use RootSecOps in your work, please cite this project."
 type: software
 title: RootSecOps
+repository-code: "https://github.com/Rootast/rootsecops"
+url: "https://github.com/Rootast/rootsecops"
 abstract: "Multi-scanner security orchestration for DevSecOps."
 authors:
   - family-names: Shahbazi

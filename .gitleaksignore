@@ -1,0 +1,3 @@
+# Historical synthetic AWS detector fixture, not a real credential.
+# Suppress only this exact finding; keep all other files and commits scanned.
+9be97a7771992b8fc591ad86327b273630c6e1b3:frontend/src/app/(dashboard)/dashboard/page.tsx:aws-access-token:112
